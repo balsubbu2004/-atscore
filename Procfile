@@ -1,0 +1,1 @@
+web: gunicorn ats_scorer.wsgi --bind 0.0.0.0:$PORT
