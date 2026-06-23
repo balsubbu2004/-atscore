@@ -137,7 +137,10 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-CORS_ALLOW_ALL_ORIGINS = True  # fine for development, we'll restrict later
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "https://atscore-nine.vercel.app",
+]  # fine for development, we'll restrict later
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
