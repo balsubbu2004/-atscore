@@ -38,7 +38,7 @@ function ScoreForm() {
     try {
       const token = localStorage.getItem('access_token')
       const response = await axios.post(
-        'http://localhost:8080/api/score/',
+        '${import.meta.env.VITE_API_URL}/api/score/',
         formData,
         {
           headers: {

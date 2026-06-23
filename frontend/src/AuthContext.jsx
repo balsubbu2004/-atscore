@@ -10,7 +10,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const token = localStorage.getItem('access_token')
     if (token) {
-      axios.get('http://localhost:8080/api/auth/me/', {
+      axios.get('${import.meta.env.VITE_API_URL}/api/auth/me/', {
         headers: { Authorization: `Bearer ${token}` }
       })
         .then(res => setUser(res.data))

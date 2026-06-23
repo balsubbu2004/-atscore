@@ -10,7 +10,7 @@ function History() {
     const fetchHistory = async () => {
       try {
         const token = localStorage.getItem('access_token')
-        const response = await axios.get('http://localhost:8080/api/history/', {
+        const response = await axios.get('${import.meta.env.VITE_API_URL}/api/history/', {
           headers: { Authorization: `Bearer ${token}` }
         })
         setScans(response.data)

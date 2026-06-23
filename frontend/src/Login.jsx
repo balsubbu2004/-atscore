@@ -18,14 +18,14 @@ function Login() {
     setLoading(true)
 
     try {
-      const response = await axios.post('http://localhost:8080/api/auth/login/', {
+      const response = await axios.post('${import.meta.env.VITE_API_URL}/api/auth/login/', {
         username,
         password,
       })
 
       const { access, refresh } = response.data
 
-      const meResponse = await axios.get('http://localhost:8080/api/auth/me/', {
+      const meResponse = await axios.get('${import.meta.env.VITE_API_URL}/api/auth/me/', {
         headers: { Authorization: `Bearer ${access}` }
       })
 
@@ -41,7 +41,7 @@ function Login() {
 
   const handleGoogleSuccess = async (credentialResponse) => {
     try {
-      const response = await axios.post('http://localhost:8080/api/auth/google/', {
+      const response = await axios.post('${import.meta.env.VITE_API_URL}/api/auth/google/', {
         token: credentialResponse.credential
       })
       const { access, refresh, user } = response.data
