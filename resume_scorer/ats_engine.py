@@ -1,10 +1,21 @@
 import re
+import os
 import pdfplumber
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sentence_transformers import SentenceTransformer, util
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Load model once at startup — not on every request
-model = SentenceTransformer('all-MiniLM-L6-v2')
+# Check if we're in production (no sentence-transformers)
+USE_NLP = os.getenv('USE_NLP', 'False') == 'True'
+
+if USE_NLP:
+    from sentence_transformers import SentenceTransformer, util
+    _model = None
+
+    def get_model():
+        global _model
+        if _model is None:
+            _model = SentenceTransformer('all-MiniLM-L6-v2')
+        return _model
 
 # ── Section detection ────────────────────────────────────
 SECTION_PATTERNS = {
@@ -83,15 +94,32 @@ def extract_keywords(text, max_features=50):
         return []
 
 
-# ── Semantic Similarity ──────────────────────────────────
-def semantic_similarity(text1, text2):
+# ── TF-IDF Similarity ────────────────────────────────────
+def tfidf_similarity(text1, text2):
     if not text1.strip() or not text2.strip():
         return 0.0
-    model = get_model()
-    emb1 = model.encode(text1, convert_to_tensor=True)
-    emb2 = model.encode(text2, convert_to_tensor=True)
-    score = util.cos_sim(emb1, emb2).item()
-    return round(max(0.0, min(1.0, score)), 4)
+    try:
+        vectorizer = TfidfVectorizer()
+        tfidf_matrix = vectorizer.fit_transform([text1, text2])
+        score = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+        return round(float(score), 4)
+    except Exception:
+        return 0.0
+
+
+# ── Semantic Similarity ──────────────────────────────────
+def semantic_similarity(text1, text2):
+    if USE_NLP:
+        if not text1.strip() or not text2.strip():
+            return 0.0
+        model = get_model()
+        emb1 = model.encode(text1, convert_to_tensor=True)
+        emb2 = model.encode(text2, convert_to_tensor=True)
+        score = util.cos_sim(emb1, emb2).item()
+        return round(max(0.0, min(1.0, score)), 4)
+    else:
+        # Fall back to TF-IDF similarity in production
+        return tfidf_similarity(text1, text2)
 
 
 # ── Section Scorer ───────────────────────────────────────
@@ -99,15 +127,12 @@ def score_section(section_text, jd_text, jd_keywords):
     if not section_text.strip():
         return 0
 
-    # Keyword match score (50% of section score)
     section_lower = section_text.lower()
     matched = [kw for kw in jd_keywords if kw in section_lower]
     keyword_score = (len(matched) / len(jd_keywords) * 100) if jd_keywords else 0
 
-    # Semantic similarity score (50% of section score)
     sem_score = semantic_similarity(section_text, jd_text) * 100
 
-    # Combined
     return round((keyword_score * 0.5) + (sem_score * 0.5))
 
 
@@ -116,15 +141,11 @@ def generate_suggestions(sections, jd_keywords, section_scores, resume_text):
     suggestions = []
     resume_lower = resume_text.lower()
 
-    # Skills suggestions
     missing_keywords = [kw for kw in jd_keywords if kw not in resume_lower]
     if missing_keywords[:5]:
         top_missing = ', '.join(missing_keywords[:5])
-        suggestions.append(
-            f"Add these missing skills to your resume: {top_missing}"
-        )
+        suggestions.append(f"Add these missing skills to your resume: {top_missing}")
 
-    # Experience suggestions
     exp_score = section_scores.get('experience', 0)
     if exp_score < 50:
         suggestions.append(
@@ -137,7 +158,6 @@ def generate_suggestions(sections, jd_keywords, section_scores, resume_text):
             "(e.g. 'reduced load time by 30%', 'handled 500+ users')."
         )
 
-    # Projects suggestions
     proj_score = section_scores.get('projects', 0)
     if proj_score < 50:
         suggestions.append(
@@ -145,7 +165,6 @@ def generate_suggestions(sections, jd_keywords, section_scores, resume_text):
             "Highlight projects that use technologies mentioned in the job description."
         )
 
-    # Summary suggestions
     if not sections.get('summary', '').strip():
         suggestions.append(
             "Add a professional summary at the top of your resume "
@@ -157,36 +176,20 @@ def generate_suggestions(sections, jd_keywords, section_scores, resume_text):
             "mention the job title and key skills from the job description."
         )
 
-    # Certifications
     if not sections.get('certifications', '').strip():
         suggestions.append(
-            "Consider adding relevant certifications to strengthen your profile "
-            "for this role."
+            "Consider adding relevant certifications to strengthen your profile."
         )
 
-    # Education
-    edu_score = section_scores.get('education', 0)
-    if edu_score < 40:
-        suggestions.append(
-            "Your education section may not match the requirements. "
-            "Check if the JD mentions specific degree requirements."
-        )
-
-    return suggestions[:5]  # max 5 suggestions
+    return suggestions[:5]
 
 
 # ── Main Analyzer ────────────────────────────────────────
 def analyze_resume(pdf_path, job_description):
-    # Extract text
     resume_text = extract_text_from_pdf(pdf_path)
-
-    # Parse into sections
     sections = parse_sections(resume_text)
-
-    # Extract JD keywords
     jd_keywords = extract_keywords(job_description, max_features=40)
 
-    # Score each section
     section_scores = {}
     for section in SECTION_WEIGHTS:
         section_scores[section] = score_section(
@@ -195,7 +198,6 @@ def analyze_resume(pdf_path, job_description):
             jd_keywords
         )
 
-    # Overall weighted score
     overall_score = 0
     total_weight = 0
     for section, weight in SECTION_WEIGHTS.items():
@@ -209,18 +211,13 @@ def analyze_resume(pdf_path, job_description):
     else:
         overall_score = 0
 
-    # Overall semantic similarity
     overall_semantic = semantic_similarity(resume_text, job_description)
-
-    # Blend overall score with semantic similarity
     overall_score = round((overall_score * 0.6) + (overall_semantic * 100 * 0.4))
 
-    # Keyword matching for display
     resume_lower = resume_text.lower()
     matched_keywords = [kw for kw in jd_keywords if kw in resume_lower]
     missing_keywords = [kw for kw in jd_keywords if kw not in resume_lower]
 
-    # Generate suggestions
     suggestions = generate_suggestions(
         sections, jd_keywords, section_scores, resume_text
     )
@@ -234,11 +231,3 @@ def analyze_resume(pdf_path, job_description):
         'suggestions': suggestions,
         'resume_text': resume_text,
     }
-    
-_model = None
-
-def get_model():
-    global _model
-    if _model is None:
-        _model = SentenceTransformer('all-MiniLM-L6-v2')
-    return _model
