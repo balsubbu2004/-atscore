@@ -1,5 +1,6 @@
 venv/
 .env
+frontend/.env
 __pycache__/
 *.pyc
 *.pyo
@@ -8,6 +9,5 @@ node_modules/
 frontend/dist/
 .DS_Store
 *.egg-info/
-frontend/.env
 dist/
 build/

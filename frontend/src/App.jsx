@@ -7,6 +7,7 @@ import Signup from './Signup.jsx'
 import ProtectedRoute from './ProtectedRoute.jsx'
 import { useAuth } from './AuthContext.jsx'
 import './App.css'
+import API_URL from './config.js'
 
 function ScoreForm() {
   const [resumeFile, setResumeFile] = useState(null)
@@ -38,7 +39,7 @@ function ScoreForm() {
     try {
       const token = localStorage.getItem('access_token')
       const response = await axios.post(
-        '${import.meta.env.VITE_API_URL}/api/score/',
+        `${API_URL}/api/score/`,
         formData,
         {
           headers: {

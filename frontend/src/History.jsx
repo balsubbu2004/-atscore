@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import API_URL from './config.js'
 
 function History() {
   const [scans, setScans] = useState([])
@@ -10,7 +11,7 @@ function History() {
     const fetchHistory = async () => {
       try {
         const token = localStorage.getItem('access_token')
-        const response = await axios.get('${import.meta.env.VITE_API_URL}/api/history/', {
+        const response = await axios.get(`${API_URL}/api/history/`, {
           headers: { Authorization: `Bearer ${token}` }
         })
         setScans(response.data)
