@@ -87,6 +87,7 @@ def extract_keywords(text, max_features=50):
 def semantic_similarity(text1, text2):
     if not text1.strip() or not text2.strip():
         return 0.0
+    model = get_model()
     emb1 = model.encode(text1, convert_to_tensor=True)
     emb2 = model.encode(text2, convert_to_tensor=True)
     score = util.cos_sim(emb1, emb2).item()
@@ -233,3 +234,11 @@ def analyze_resume(pdf_path, job_description):
         'suggestions': suggestions,
         'resume_text': resume_text,
     }
+    
+_model = None
+
+def get_model():
+    global _model
+    if _model is None:
+        _model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _model
