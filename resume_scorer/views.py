@@ -119,10 +119,18 @@ def google_auth_view(request):
             username = f"{base_username}{counter}"
             counter += 1
 
-        user, created = User.objects.get_or_create(
-            email=email,
-            defaults={'username': username}
-        )
+        try:
+            user = User.objects.get(email=email)
+            created = False
+        except User.DoesNotExist:
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=None
+            )
+            user.set_unusable_password()
+            user.save()
+            created = True
 
         if created:
             user.set_unusable_password()
