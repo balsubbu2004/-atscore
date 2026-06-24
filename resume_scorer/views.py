@@ -6,10 +6,11 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.contrib.auth.models import User
 from rest_framework import status
 from .models import ResumeScan
-from .serializers import ResumeScanSerializer,SignupSerializer, UserSerializer
+from .serializers import ResumeScanSerializer, SignupSerializer, UserSerializer
 from .ats_engine import analyze_resume
 import tempfile
 import os
+
 
 @api_view(['POST'])
 @parser_classes([MultiPartParser, FormParser])
@@ -62,6 +63,7 @@ def history_view(request):
     serializer = ResumeScanSerializer(scans, many=True)
     return Response(serializer.data)
 
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def signup_view(request):
@@ -105,11 +107,18 @@ def google_auth_view(request):
         email = google_data.get('email')
         if not email:
             return Response(
-                {"error": "Could not get email from Google"},
+                {"error": "Could not get email from Google", "google_data": google_data},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        username = email.split('@')[0]
+        # Handle duplicate username
+        base_username = email.split('@')[0]
+        username = base_username
+        counter = 1
+        while User.objects.filter(username=username).exists():
+            username = f"{base_username}{counter}"
+            counter += 1
+
         user, created = User.objects.get_or_create(
             email=email,
             defaults={'username': username}
@@ -126,6 +135,12 @@ def google_auth_view(request):
             'refresh': str(refresh),
         })
 
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode()
+        return Response(
+            {"error": f"Google token verification failed: {error_body}"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     except Exception as e:
         return Response(
             {"error": f"Google authentication failed: {str(e)}"},
