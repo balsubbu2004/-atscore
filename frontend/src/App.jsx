@@ -86,10 +86,21 @@ function ScoreForm() {
     certifications: '📜 Certifications',
   }
 
+  const qualityLabels = {
+    sections: '📋 Section Completeness',
+    action_verbs: '💪 Action Verbs',
+    quantification: '📊 Quantified Achievements',
+    contact_info: '📬 Contact Info',
+    summary_quality: '📝 Summary Quality',
+    skills_depth: '🛠 Skills Depth',
+    projects_tech: '🚀 Project Tech Stack',
+    resume_length: '📏 Resume Length',
+  }
+
   return (
     <div className={`scorer-page ${result || loading ? 'split' : 'centered'}`}>
 
-      {/* ── Left / Center panel ── */}
+      {/* ── Left panel ── */}
       <div className="scorer-left">
         <div className="page-hero" style={{ borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0' }}>
           <h1>ATS Resume <span>Scorer</span></h1>
@@ -120,9 +131,20 @@ function ScoreForm() {
             </div>
 
             <div>
-              <label className="field-label">Job Description <span style={{fontWeight: 400, color: 'var(--text-3)', textTransform: 'none', fontSize: '0.75rem'}}>(optional)</span></label>
+              <label className="field-label">
+                Job Description{' '}
+                <span style={{
+                  fontWeight: 400,
+                  color: 'var(--text-3)',
+                  textTransform: 'none',
+                  fontSize: '0.75rem',
+                  letterSpacing: 0
+                }}>
+                  (optional)
+                </span>
+              </label>
               <textarea
-                rows="4"
+                rows="10"
                 placeholder="Paste a job description here for JD match scoring (optional) — or leave blank to score resume quality only."
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
@@ -149,7 +171,7 @@ function ScoreForm() {
         </div>
       </div>
 
-      {/* ── Right panel — only shown after scoring ── */}
+      {/* ── Right panel ── */}
       {(result || loading) && (
         <div className="scorer-right">
           {loading && (
@@ -172,7 +194,10 @@ function ScoreForm() {
                 </div>
                 <h2>{getScoreLabel(result.overall_score)}</h2>
                 <p style={{ color: '#94a3b8', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                  Semantic similarity: {Math.round(result.semantic_similarity * 100)}%
+                  {result.has_jd
+                    ? `Semantic similarity: ${Math.round(result.semantic_similarity * 100)}%`
+                    : `Quality score: ${result.quality_score}/100`
+                  }
                 </p>
               </div>
 
@@ -188,34 +213,70 @@ function ScoreForm() {
                 </div>
               </div>
 
-              {/* Section Scores */}
+              {/* Section / Quality Breakdown */}
               <div className="section-scores-wrap">
-                <h3 className="section-scores-title">Section Breakdown</h3>
+                <h3 className="section-scores-title">
+                  {result.has_jd ? 'Section Breakdown' : 'Quality Breakdown'}
+                </h3>
                 <div className="section-scores-grid">
-                  {Object.entries(result.section_scores).map(([section, score]) => (
-                    <div key={section} className="section-score-item">
-                      <div className="section-score-top">
-                        <span className="section-score-label">
-                          {sectionLabels[section] || section}
-                        </span>
-                        <span
-                          className="section-score-value"
-                          style={{ color: getScoreColor(score) }}
-                        >
-                          {score}%
-                        </span>
+                  {result.has_jd ? (
+                    Object.entries(result.section_scores).map(([section, score]) => (
+                      <div key={section} className="section-score-item">
+                        <div className="section-score-top">
+                          <span className="section-score-label">
+                            {sectionLabels[section] || section}
+                          </span>
+                          <span
+                            className="section-score-value"
+                            style={{ color: getScoreColor(score) }}
+                          >
+                            {score}%
+                          </span>
+                        </div>
+                        <div className="section-bar-track">
+                          <div
+                            className="section-bar-fill"
+                            style={{
+                              width: `${score}%`,
+                              background: getScoreColor(score)
+                            }}
+                          />
+                        </div>
                       </div>
-                      <div className="section-bar-track">
-                        <div
-                          className="section-bar-fill"
-                          style={{
-                            width: `${score}%`,
-                            background: getScoreColor(score)
-                          }}
-                        />
+                    ))
+                  ) : (
+                    Object.entries(result.quality_breakdown).map(([key, val]) => (
+                      <div key={key} className="section-score-item">
+                        <div className="section-score-top">
+                          <span className="section-score-label">
+                            {qualityLabels[key] || key.replace(/_/g, ' ')}
+                          </span>
+                          <span
+                            className="section-score-value"
+                            style={{ color: getScoreColor((val.score / val.max) * 100) }}
+                          >
+                            {val.score}/{val.max}
+                          </span>
+                        </div>
+                        <div className="section-bar-track">
+                          <div
+                            className="section-bar-fill"
+                            style={{
+                              width: `${(val.score / val.max) * 100}%`,
+                              background: getScoreColor((val.score / val.max) * 100)
+                            }}
+                          />
+                        </div>
+                        <p style={{
+                          fontSize: '0.75rem',
+                          color: 'var(--text-3)',
+                          marginTop: '2px'
+                        }}>
+                          {val.detail}
+                        </p>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -234,32 +295,34 @@ function ScoreForm() {
                 </div>
               )}
 
-              {/* Keywords */}
-              <div className="keyword-grid">
-                <div className="keyword-col">
-                  <div className="keyword-col-header">
-                    <h3 style={{ color: 'var(--success)' }}>Matched</h3>
-                    <span className="kw-count matched">{result.matched_keywords.length}</span>
+              {/* Keywords — only show when JD provided */}
+              {result.has_jd && (
+                <div className="keyword-grid">
+                  <div className="keyword-col">
+                    <div className="keyword-col-header">
+                      <h3 style={{ color: 'var(--success)' }}>Matched</h3>
+                      <span className="kw-count matched">{result.matched_keywords.length}</span>
+                    </div>
+                    <ul className="keyword-list">
+                      {result.matched_keywords.map((kw, i) => (
+                        <li key={i} className="keyword-pill matched">✓ {kw}</li>
+                      ))}
+                    </ul>
                   </div>
-                  <ul className="keyword-list">
-                    {result.matched_keywords.map((kw, i) => (
-                      <li key={i} className="keyword-pill matched">✓ {kw}</li>
-                    ))}
-                  </ul>
-                </div>
 
-                <div className="keyword-col">
-                  <div className="keyword-col-header">
-                    <h3 style={{ color: 'var(--danger)' }}>Missing</h3>
-                    <span className="kw-count missing">{result.missing_keywords.length}</span>
+                  <div className="keyword-col">
+                    <div className="keyword-col-header">
+                      <h3 style={{ color: 'var(--danger)' }}>Missing</h3>
+                      <span className="kw-count missing">{result.missing_keywords.length}</span>
+                    </div>
+                    <ul className="keyword-list">
+                      {result.missing_keywords.map((kw, i) => (
+                        <li key={i} className="keyword-pill missing">✗ {kw}</li>
+                      ))}
+                    </ul>
                   </div>
-                  <ul className="keyword-list">
-                    {result.missing_keywords.map((kw, i) => (
-                      <li key={i} className="keyword-pill missing">✗ {kw}</li>
-                    ))}
-                  </ul>
                 </div>
-              </div>
+              )}
 
             </div>
           )}
