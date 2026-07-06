@@ -141,7 +141,6 @@ def groq_jd_match(resume_text, job_description):
 
     try:
         client = Groq(api_key=api_key)
-        print(f"Groq client created, key starts with: {api_key[:10]}...")
 
         prompt = f"""You are an expert ATS (Applicant Tracking System) analyzer.
 
@@ -177,13 +176,10 @@ Return ONLY this JSON with no explanation, no markdown, no code blocks:
         )
 
         raw = response.choices[0].message.content.strip()
-        print(f"Groq raw response (first 200 chars): {raw[:200]}")
-
         # Clean markdown if present
         raw = re.sub(r'```json|```', '', raw).strip()
 
         data = json.loads(raw)
-        print(f"Groq JD match score: {data.get('jd_match_score')}")
 
         return (
             data.get('jd_match_score', 0),
@@ -431,7 +427,6 @@ def analyze_resume(pdf_path, job_description=None):
 
         else:
             # Fall back to TF-IDF
-            print("Falling back to TF-IDF scoring")
             jd_score, section_scores, matched_keywords, missing_keywords, semantic_sim = \
                 score_jd_match(resume_text, job_description, sections)
             overall_score = round((quality_score * 0.6) + (jd_score * 0.4))
