@@ -16,11 +16,11 @@ import os
 @parser_classes([MultiPartParser, FormParser])
 def score_resume_view(request):
     resume_file = request.FILES.get('resume')
-    job_description = request.data.get('job_description')
+    job_description = request.data.get('job_description', '').strip()
 
-    if not resume_file or not job_description:
+    if not resume_file:
         return Response(
-            {"error": "Both resume file and job description are required."},
+            {"error": "Resume file is required."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
@@ -30,7 +30,7 @@ def score_resume_view(request):
         tmp_path = tmp.name
 
     try:
-        result = analyze_resume(tmp_path, job_description)
+        result = analyze_resume(tmp_path, job_description if job_description else None)
     finally:
         os.remove(tmp_path)
 
@@ -48,11 +48,15 @@ def score_resume_view(request):
         'id': scan.id,
         'resume_file_name': scan.resume_file_name,
         'overall_score': result['overall_score'],
+        'quality_score': result['quality_score'],
+        'jd_match_score': result['jd_match_score'],
+        'quality_breakdown': result['quality_breakdown'],
         'section_scores': result['section_scores'],
         'matched_keywords': result['matched_keywords'],
         'missing_keywords': result['missing_keywords'],
         'semantic_similarity': result['semantic_similarity'],
         'suggestions': result['suggestions'],
+        'has_jd': result['has_jd'],
         'created_at': scan.created_at,
     }, status=status.HTTP_201_CREATED)
 
