@@ -24,8 +24,8 @@ function ScoreForm() {
     e.preventDefault()
     setError('')
 
-    if (!resumeFile || !jobDescription.trim()) {
-      setError('Please upload a resume and paste a job description.')
+    if (!resumeFile) {
+      setError('Please upload a resume PDF.')
       return
     }
 
@@ -120,10 +120,10 @@ function ScoreForm() {
             </div>
 
             <div>
-              <label className="field-label">Job Description</label>
+              <label className="field-label">Job Description <span style={{fontWeight: 400, color: 'var(--text-3)', textTransform: 'none', fontSize: '0.75rem'}}>(optional)</span></label>
               <textarea
                 rows="4"
-                placeholder="Paste the full job description here…"
+                placeholder="Paste a job description here for JD match scoring (optional) — or leave blank to score resume quality only."
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
               />
