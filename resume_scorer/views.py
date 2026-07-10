@@ -56,6 +56,7 @@ def score_resume_view(request):
         'missing_keywords': result['missing_keywords'],
         'semantic_similarity': result['semantic_similarity'],
         'suggestions': result['suggestions'],
+        'strengths': result['strengths'],
         'has_jd': result['has_jd'],
         'created_at': scan.created_at,
     }, status=status.HTTP_201_CREATED)
