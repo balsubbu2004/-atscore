@@ -37,15 +37,6 @@ SECTION_WEIGHTS = {
     'certifications': 0.02,
 }
 
-ACTION_VERBS = [
-    'built', 'developed', 'implemented', 'designed', 'created', 'led',
-    'managed', 'optimized', 'improved', 'reduced', 'increased', 'delivered',
-    'architected', 'deployed', 'integrated', 'automated', 'debugged', 'fixed',
-    'collaborated', 'contributed', 'analyzed', 'identified', 'resolved',
-    'established', 'launched', 'migrated', 'refactored', 'tested', 'documented',
-    'trained', 'mentored', 'coordinated', 'streamlined', 'maintained'
-]
-
 
 # ── PDF Extraction ───────────────────────────────────────
 def extract_text_from_pdf(pdf_path):
@@ -131,12 +122,196 @@ def semantic_similarity(text1, text2):
         return tfidf_similarity(text1, text2)
 
 
+# ── Groq AI Quality Scorer ───────────────────────────────
+def groq_quality_score(resume_text):
+    api_key = os.getenv('GROQ_API_KEY')
+
+    if not api_key:
+        return None, {}, []
+
+    try:
+        client = Groq(api_key=api_key)
+
+        prompt = f"""You are a strict ATS (Applicant Tracking System) and professional resume evaluator.
+
+Evaluate this resume like a real ATS system would — be honest and realistic, not generous.
+
+RESUME:
+{resume_text[:3000]}
+
+Score each category strictly. A perfect score means industry-level quality. Most fresher resumes score 60-80%.
+
+Return ONLY this JSON with no explanation, no markdown, no code blocks:
+{{
+    "overall_quality_score": <integer 0-100, be realistic and strict>,
+    "quality_breakdown": {{
+        "sections": {{
+            "score": <integer 0-20>,
+            "max": 20,
+            "detail": "<what sections are present and what's missing>"
+        }},
+        "action_verbs": {{
+            "score": <integer 0-15>,
+            "max": 15,
+            "detail": "<quality and strength of action verbs used>"
+        }},
+        "quantification": {{
+            "score": <integer 0-15>,
+            "max": 15,
+            "detail": "<quality of quantified achievements — are they meaningful metrics?>"
+        }},
+        "contact_info": {{
+            "score": <integer 0-10>,
+            "max": 10,
+            "detail": "<what contact fields are present>"
+        }},
+        "summary_quality": {{
+            "score": <integer 0-10>,
+            "max": 10,
+            "detail": "<is the summary strong, specific, and targeted?>"
+        }},
+        "skills_depth": {{
+            "score": <integer 0-10>,
+            "max": 10,
+            "detail": "<are skills relevant, specific, and well-organized?>"
+        }},
+        "projects_impact": {{
+            "score": <integer 0-10>,
+            "max": 10,
+            "detail": "<do projects show real impact, tech stack, and outcomes?>"
+        }},
+        "experience_quality": {{
+            "score": <integer 0-10>,
+            "max": 10,
+            "detail": "<quality and relevance of work experience>"
+        }}
+    }},
+    "suggestions": [<list of 3-5 specific actionable improvement suggestions>],
+    "strengths": [<list of 2-3 things the resume does well>]
+}}"""
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=1500,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        raw = re.sub(r'```json|```', '', raw).strip()
+
+        data = json.loads(raw)
+
+        return (
+            data.get('overall_quality_score', 0),
+            data.get('quality_breakdown', {}),
+            data.get('suggestions', []),
+            data.get('strengths', [])
+        )
+
+    except json.JSONDecodeError as e:
+        return None, {}, [], []
+    except Exception as e:
+        return None, {}, [], []
+
+
+# ── Rule-based Quality Scorer (fallback) ─────────────────
+def rule_based_quality_score(resume_text, sections):
+    quality_breakdown = {}
+    resume_lower = resume_text.lower()
+    word_count = len(resume_text.split())
+
+    ACTION_VERBS = [
+        'built', 'developed', 'implemented', 'designed', 'created', 'led',
+        'managed', 'optimized', 'improved', 'reduced', 'increased', 'delivered',
+        'architected', 'deployed', 'integrated', 'automated', 'debugged', 'fixed',
+        'collaborated', 'contributed', 'analyzed', 'identified', 'resolved',
+        'established', 'launched', 'migrated', 'refactored', 'tested', 'documented',
+        'trained', 'mentored', 'coordinated', 'streamlined', 'maintained'
+    ]
+
+    # 1. Section completeness (20 points)
+    key_sections = ['summary', 'skills', 'experience', 'projects', 'education']
+    found_sections = sum(1 for s in key_sections if sections.get(s, '').strip())
+    section_score = round((found_sections / len(key_sections)) * 20)
+    quality_breakdown['sections'] = {
+        'score': section_score, 'max': 20,
+        'detail': f'{found_sections}/{len(key_sections)} key sections found'
+    }
+
+    # 2. Action verbs (15 points)
+    exp_text = sections.get('experience', '') + ' ' + sections.get('projects', '')
+    found_verbs = [v for v in ACTION_VERBS if v in exp_text.lower()]
+    verb_score = min(15, round((len(found_verbs) / 8) * 15))
+    quality_breakdown['action_verbs'] = {
+        'score': verb_score, 'max': 15,
+        'detail': f'{len(found_verbs)} action verbs found'
+    }
+
+    # 3. Quantification (15 points)
+    number_pattern = r'\b\d+[\+\%]?\s*(users?|students?|bugs?|languages?|months?|years?|hours?|k|million)?\b'
+    numbers_found = re.findall(number_pattern, resume_lower)
+    quant_score = min(15, len(numbers_found) * 3)
+    quality_breakdown['quantification'] = {
+        'score': quant_score, 'max': 15,
+        'detail': f'{len(numbers_found)} quantified achievements found'
+    }
+
+    # 4. Contact info (10 points)
+    has_email = bool(re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resume_text))
+    has_phone = bool(re.search(r'[\+]?[\d\s\-\(\)]{8,}', resume_text))
+    has_linkedin = 'linkedin' in resume_lower
+    has_github = 'github' in resume_lower
+    contact_count = sum([has_email, has_phone, has_linkedin, has_github])
+    contact_score = round((contact_count / 4) * 10)
+    quality_breakdown['contact_info'] = {
+        'score': contact_score, 'max': 10,
+        'detail': f'{contact_count}/4 contact fields present'
+    }
+
+    # 5. Summary (10 points)
+    summary_words = len(sections.get('summary', '').split())
+    summary_score = 10 if summary_words >= 50 else 7 if summary_words >= 30 else 4 if summary_words >= 10 else 0
+    quality_breakdown['summary_quality'] = {
+        'score': summary_score, 'max': 10,
+        'detail': f'Summary has {summary_words} words'
+    }
+
+    # 6. Skills (10 points)
+    skills_count = len([s for s in re.split(r'[,\n|]', sections.get('skills', '')) if s.strip()])
+    skills_score = min(10, round((skills_count / 10) * 10))
+    quality_breakdown['skills_depth'] = {
+        'score': skills_score, 'max': 10,
+        'detail': f'{skills_count} skills listed'
+    }
+
+    # 7. Projects (10 points)
+    tech_keywords = ['python', 'django', 'flask', 'react', 'javascript', 'postgresql',
+                     'sql', 'api', 'git', 'docker', 'linux', 'sqlite']
+    techs_in_projects = [t for t in tech_keywords if t in sections.get('projects', '').lower()]
+    projects_score = min(10, len(techs_in_projects) * 2)
+    quality_breakdown['projects_impact'] = {
+        'score': projects_score, 'max': 10,
+        'detail': f'{len(techs_in_projects)} technologies mentioned in projects'
+    }
+
+    # 8. Experience (10 points)
+    exp_words = len(sections.get('experience', '').split())
+    exp_score = 10 if exp_words >= 80 else 7 if exp_words >= 40 else 4 if exp_words >= 20 else 0
+    quality_breakdown['experience_quality'] = {
+        'score': exp_score, 'max': 10,
+        'detail': f'Experience section has {exp_words} words'
+    }
+
+    total = sum(v['score'] for v in quality_breakdown.values())
+    return total, quality_breakdown
+
+
 # ── Groq AI JD Matcher ───────────────────────────────────
 def groq_jd_match(resume_text, job_description):
     api_key = os.getenv('GROQ_API_KEY')
 
     if not api_key:
-        print("Groq error: GROQ_API_KEY not found in environment")
         return None, [], [], {}, []
 
     try:
@@ -176,9 +351,7 @@ Return ONLY this JSON with no explanation, no markdown, no code blocks:
         )
 
         raw = response.choices[0].message.content.strip()
-        # Clean markdown if present
         raw = re.sub(r'```json|```', '', raw).strip()
-
         data = json.loads(raw)
 
         return (
@@ -189,122 +362,10 @@ Return ONLY this JSON with no explanation, no markdown, no code blocks:
             data.get('suggestions', [])
         )
 
-    except json.JSONDecodeError as e:
-        print(f"Groq JSON parse error: {e}")
-        print(f"Raw response was: {raw}")
+    except json.JSONDecodeError:
         return None, [], [], {}, []
-    except Exception as e:
-        print(f"Groq error: {type(e).__name__}: {e}")
+    except Exception:
         return None, [], [], {}, []
-
-
-# ── Resume Quality Scorer ────────────────────────────────
-def score_resume_quality(resume_text, sections):
-    quality_breakdown = {}
-    resume_lower = resume_text.lower()
-    word_count = len(resume_text.split())
-
-    # 1. Section completeness (20 points)
-    key_sections = ['summary', 'skills', 'experience', 'projects', 'education']
-    found_sections = sum(1 for s in key_sections if sections.get(s, '').strip())
-    section_score = round((found_sections / len(key_sections)) * 20)
-    quality_breakdown['sections'] = {
-        'score': section_score,
-        'max': 20,
-        'detail': f'{found_sections}/{len(key_sections)} key sections found'
-    }
-
-    # 2. Action verbs (15 points)
-    exp_text = sections.get('experience', '') + ' ' + sections.get('projects', '')
-    exp_lower = exp_text.lower()
-    found_verbs = [v for v in ACTION_VERBS if v in exp_lower]
-    verb_score = min(15, round((len(found_verbs) / 8) * 15))
-    quality_breakdown['action_verbs'] = {
-        'score': verb_score,
-        'max': 15,
-        'detail': f'{len(found_verbs)} action verbs found'
-    }
-
-    # 3. Quantified achievements (15 points)
-    number_pattern = r'\b\d+[\+\%]?\s*(users?|students?|bugs?|issues?|processes?|languages?|months?|years?|hours?|minutes?|mb|gb|ms|k|million)?\b'
-    numbers_found = re.findall(number_pattern, resume_lower)
-    quant_score = min(15, len(numbers_found) * 3)
-    quality_breakdown['quantification'] = {
-        'score': quant_score,
-        'max': 15,
-        'detail': f'{len(numbers_found)} quantified achievements found'
-    }
-
-    # 4. Contact info (10 points)
-    has_email = bool(re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resume_text))
-    has_phone = bool(re.search(r'[\+]?[\d\s\-\(\)]{8,}', resume_text))
-    has_linkedin = 'linkedin' in resume_lower
-    has_github = 'github' in resume_lower
-    contact_count = sum([has_email, has_phone, has_linkedin, has_github])
-    contact_score = round((contact_count / 4) * 10)
-    quality_breakdown['contact_info'] = {
-        'score': contact_score,
-        'max': 10,
-        'detail': f'{contact_count}/4 contact fields present'
-    }
-
-    # 5. Summary quality (10 points)
-    summary_text = sections.get('summary', '')
-    summary_words = len(summary_text.split())
-    if summary_words >= 50:
-        summary_score = 10
-    elif summary_words >= 30:
-        summary_score = 7
-    elif summary_words >= 10:
-        summary_score = 4
-    else:
-        summary_score = 0
-    quality_breakdown['summary_quality'] = {
-        'score': summary_score,
-        'max': 10,
-        'detail': f'Summary has {summary_words} words'
-    }
-
-    # 6. Skills section (10 points)
-    skills_text = sections.get('skills', '')
-    skills_count = len([s for s in re.split(r'[,\n|]', skills_text) if s.strip()])
-    skills_score = min(10, round((skills_count / 10) * 10))
-    quality_breakdown['skills_depth'] = {
-        'score': skills_score,
-        'max': 10,
-        'detail': f'{skills_count} skills listed'
-    }
-
-    # 7. Projects with tech stack (10 points)
-    projects_text = sections.get('projects', '')
-    tech_keywords = ['python', 'django', 'flask', 'react', 'javascript', 'postgresql',
-                     'sql', 'api', 'git', 'docker', 'linux', 'node', 'mongodb',
-                     'sqlite', 'tensorflow', 'pytorch', 'aws', 'firebase']
-    techs_in_projects = [t for t in tech_keywords if t in projects_text.lower()]
-    projects_score = min(10, len(techs_in_projects) * 2)
-    quality_breakdown['projects_tech'] = {
-        'score': projects_score,
-        'max': 10,
-        'detail': f'{len(techs_in_projects)} technologies mentioned in projects'
-    }
-
-    # 8. Resume length (10 points)
-    if 300 <= word_count <= 700:
-        length_score = 10
-    elif 200 <= word_count <= 900:
-        length_score = 7
-    elif word_count < 200:
-        length_score = 3
-    else:
-        length_score = 5
-    quality_breakdown['resume_length'] = {
-        'score': length_score,
-        'max': 10,
-        'detail': f'{word_count} words total'
-    }
-
-    total_quality = sum(v['score'] for v in quality_breakdown.values())
-    return total_quality, quality_breakdown
 
 
 # ── JD Match Scorer (TF-IDF fallback) ───────────────────
@@ -317,7 +378,6 @@ def score_jd_match(resume_text, job_description, sections):
         if not section_text.strip():
             section_scores[section] = 0
             continue
-
         section_lower = section_text.lower()
         matched = [kw for kw in jd_keywords if kw in section_lower]
         keyword_score = (len(matched) / len(jd_keywords) * 100) if jd_keywords else 0
@@ -325,7 +385,6 @@ def score_jd_match(resume_text, job_description, sections):
         section_scores[section] = round((keyword_score * 0.5) + (sem_score * 0.5))
 
     overall_semantic = semantic_similarity(resume_text, job_description)
-
     weighted_score = 0
     total_weight = 0
     for section, weight in SECTION_WEIGHTS.items():
@@ -344,97 +403,38 @@ def score_jd_match(resume_text, job_description, sections):
     return jd_score, section_scores, matched_keywords, missing_keywords, overall_semantic
 
 
-# ── Suggestions Generator ────────────────────────────────
-def generate_suggestions(sections, quality_breakdown, section_scores,
-                         resume_text, jd_keywords=None, has_jd=False):
-    suggestions = []
-    resume_lower = resume_text.lower()
-
-    if quality_breakdown['action_verbs']['score'] < 10:
-        suggestions.append(
-            "Add more action verbs to your experience bullets — words like 'built', "
-            "'optimized', 'reduced', 'led' make achievements sound stronger."
-        )
-
-    if quality_breakdown['quantification']['score'] < 9:
-        suggestions.append(
-            "Add more numbers to your resume — '500+ users', '30% faster', "
-            "'3 critical processes'. Quantified achievements stand out to recruiters."
-        )
-
-    if quality_breakdown['summary_quality']['score'] < 7:
-        suggestions.append(
-            "Strengthen your professional summary — aim for 50+ words that clearly "
-            "state your role, key skills, and what you're looking for."
-        )
-
-    if quality_breakdown['sections']['score'] < 16:
-        suggestions.append(
-            "Make sure your resume has all key sections: Summary, Skills, "
-            "Experience, Projects, and Education."
-        )
-
-    if quality_breakdown['contact_info']['score'] < 8:
-        suggestions.append(
-            "Add complete contact info — email, phone, LinkedIn, and GitHub "
-            "are all expected by recruiters."
-        )
-
-    if has_jd and jd_keywords:
-        missing = [kw for kw in jd_keywords if kw not in resume_lower]
-        if missing[:5]:
-            suggestions.append(
-                f"Add these keywords from the job description: {', '.join(missing[:5])}"
-            )
-
-        exp_score = section_scores.get('experience', 0) if section_scores else 0
-        if exp_score < 50:
-            suggestions.append(
-                "Your experience section has low relevance to this job. "
-                "Tailor your bullet points to match the job description."
-            )
-
-    return suggestions[:5]
-
-
 # ── Main Analyzer ────────────────────────────────────────
 def analyze_resume(pdf_path, job_description=None):
     resume_text = extract_text_from_pdf(pdf_path)
     sections = parse_sections(resume_text)
 
-    # Always score quality
-    quality_score, quality_breakdown = score_resume_quality(resume_text, sections)
-
     has_jd = bool(job_description and job_description.strip())
 
+    # Try Groq quality scoring first
+    groq_quality_result = groq_quality_score(resume_text)
+    quality_score, quality_breakdown, quality_suggestions, strengths = groq_quality_result
+
+    if quality_score is None:
+        # Fall back to rule-based
+        quality_score, quality_breakdown = rule_based_quality_score(resume_text, sections)
+        quality_suggestions = []
+        strengths = []
+
     if has_jd:
-        # Try Groq first
+        # Try Groq JD matching
         groq_result = groq_jd_match(resume_text, job_description)
-        jd_score, matched_keywords, missing_keywords, section_scores, ai_suggestions = groq_result
+        jd_score, matched_keywords, missing_keywords, section_scores, jd_suggestions = groq_result
 
         if jd_score is not None:
-            # Groq succeeded
             overall_score = round((quality_score * 0.4) + (jd_score * 0.6))
             semantic_sim = jd_score / 100
-
-            quality_suggestions = generate_suggestions(
-                sections, quality_breakdown, section_scores,
-                resume_text, has_jd=False
-            )
-            suggestions = ai_suggestions[:3] + [
-                s for s in quality_suggestions if s not in ai_suggestions
-            ][:2]
-
+            suggestions = jd_suggestions[:3] + quality_suggestions[:2]
         else:
-            # Fall back to TF-IDF
+            # TF-IDF fallback
             jd_score, section_scores, matched_keywords, missing_keywords, semantic_sim = \
                 score_jd_match(resume_text, job_description, sections)
             overall_score = round((quality_score * 0.6) + (jd_score * 0.4))
-            suggestions = generate_suggestions(
-                sections, quality_breakdown, section_scores,
-                resume_text, extract_keywords(job_description, 40), has_jd=True
-            )
-
+            suggestions = quality_suggestions
     else:
         jd_score = None
         section_scores = {s: 0 for s in SECTION_WEIGHTS}
@@ -442,10 +442,7 @@ def analyze_resume(pdf_path, job_description=None):
         missing_keywords = []
         semantic_sim = 0.0
         overall_score = quality_score
-        suggestions = generate_suggestions(
-            sections, quality_breakdown, {},
-            resume_text, has_jd=False
-        )
+        suggestions = quality_suggestions
 
     return {
         'overall_score': overall_score,
@@ -457,6 +454,7 @@ def analyze_resume(pdf_path, job_description=None):
         'missing_keywords': missing_keywords,
         'semantic_similarity': semantic_sim,
         'suggestions': suggestions,
+        'strengths': strengths,
         'resume_text': resume_text,
         'has_jd': has_jd,
     }
