@@ -94,7 +94,7 @@ function ScoreForm() {
     summary_quality: '📝 Summary Quality',
     skills_depth: '🛠 Skills Depth',
     projects_tech: '🚀 Project Tech Stack',
-    resume_length: '📏 Resume Length',
+    experience_quality: '💼 Experience Quality',
   }
 
   return (
